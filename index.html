@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>VEC - Eldapoint - three.js webgl</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+
+		<script src="res/three/three.js"></script>
+		<script src="res/OrbitControls.js"></script>
+		<script src="res/perlin.js"></script>
+		<script src="res/GLTFLoader.js"></script>
+    	<script src="res/PointerLockControls.js"></script>
+    	<script src="res/RGBELoader.js"></script>
+    	<script src="res/FirstPersonControls_Mod.js"></script>
+    	<script src="res/iro.min.js"></script>
+    	<script src="res/HDRCubeTextureLoader.js"></script>
+  
+	</head>
+	<body>
+
+		<div id="loadingPage">
+			<div class="wrap">
+			  <div class="loading">
+			    <div class="bounceball"></div>
+			    <div class="text">NOW LOADING... <span id="loadingPerc"></span></div>
+			    
+			  </div>
+			</div>
+			<span id="platform"></span>
+		</div>
+<!--
+		<div id="titlePanel">VEC - ELDAPOINT</div>
+-->
+		<div id="logoPanel"><img src="tex/EldapointLogo.jpg"></div>
+
+		<div id="colorPicker">
+			<button type="button" id="closeColorPicker">X</button>
+			<p>Pick the color...</p>
+			<div id="demoWheel"></div>
+			<button type="button" id="applyColorPicker">APPLY</button>
+		</div>
+
+		<script type="module">
+			var isMobile = false;
+
+			var scene, camera, renderer, canvas, controls, container;
+			var loaderManager, loadingPage;
+			var clock = new THREE.Clock();
+
+			var hdrCubeMap, hdrCubeRenderTarget, generatedCubeRenderTarget;
+			const rendereExposure = 2;
+			const sunIntensity = 1.2;
+			const ambientIntensity = 1.5;
+
+			// Grass variables
+			var time = 0;
+      		var lastFrame = Date.now();
+      		var thisFrame;
+      		var grassBladeMat;
+
+      		var raycaster = new THREE.Raycaster();
+			var mouse = new THREE.Vector2();
+			var cursor;
+			var cursorSize = 0.5;
+			var modObjects = [];
+			var onMouseObj = null;
+
+			var colorPicker;
+			var colorPickerOpen = false;
+			var colorPickerIro;
+			var colorPickerClose, colorPickerApply;
+			var originalColor = new THREE.Color();
+			var selectedColor = new THREE.Color();
+			var colorPickerDivHeight, colorPickerDivWidth;
+
+			init();
+			animate();
+
+			function init() {
+
+				loadingPage = document.getElementById("loadingPage");
+				document.getElementById("platform").innerHTML = navigator.platform;
+
+				if( /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ) {
+ 					document.getElementById("platform").innerHTML += " (mobile)";
+ 					isMobile = true;
+				}
+				else {
+					isMobile = false;
+					document.getElementById("platform").innerHTML += " (desktop)";
+				}
+
+				// SCENE
+				scene = new THREE.Scene();
+				//scene.background = new THREE.Color( 0x000000 );
+
+				//CAMERA
+				camera = new THREE.PerspectiveCamera( 50, window.innerWidth / window.innerHeight, 0.1, 5000 );
+				camera.position.set(0, 15, 70);
+				//camera.lookAt(0, 10, 0);
+				//camera.lookAt(scene.position);
+				scene.add( camera );
+
+				//RENDERER
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.setClearColor( 0x2a87bc, 1);
+				renderer.gammaFactor = 2.2;
+				renderer.physicallyCorrectLights = true;
+				renderer.shadowMap.enabled = true;
+				renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+				renderer.outputEncoding = THREE.sRGBEncoding;
+				document.body.appendChild( renderer.domElement );
+
+				//CANVAS
+				canvas = document.getElementsByTagName("canvas")[0];
+				canvas.style.display = "none";
+
+				//CONTAINER
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+				container.appendChild( renderer.domElement );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// COLOR PICKER
+				colorPicker = document.getElementById("colorPicker");
+				colorPickerIro = new iro.ColorPicker("#demoWheel", {
+  					width: 200,
+  					height: 200,
+  					handleRadius: 8,
+  					handleUrl: null,
+  					handleOrigin: {y: 0, x: 0},
+  					color: '#f00',
+  					padding: 8,
+  					wheelLightness: true,
+  					wheelAngle: 270,
+  					wheelDirection: 'anticlockwise',
+  					layoutDirection: 'vertical',
+  					transparency: true,
+				});
+				colorPickerClose = document.getElementById("closeColorPicker");
+				colorPickerClose.addEventListener("click", closingColorPicker);
+				colorPickerApply = document.getElementById("applyColorPicker");
+				colorPickerApply.addEventListener("click", applyingColorPicker);
+				colorPickerDivHeight = colorPicker.offsetHeight;
+				colorPickerDivWidth = colorPicker.offsetWidth;
+				colorPicker.style.display = "none";
+
+				
+
+				//LOADER MANAGER
+				loaderManager = new THREE.LoadingManager();
+				loaderManager.onStart = function ( url, itemsLoaded, itemsTotal ) {
+					console.log( 'Started loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+				};
+				loaderManager.onLoad = function ( ) {
+					console.log( 'Loading complete!');
+					canvas.style.display = "block";
+					loadingPage.style.display = "none"; 
+
+					//CONTROLS
+
+					if(isMobile){
+						camera.position.set(0, 20, 55);
+						controls = new THREE.OrbitControls(camera, container);
+
+						//var controlTarget = new THREE.Object3D();
+						//controlTarget.position.set(0, 0, 0);
+						//scene.add(controlTarget);
+
+						controls.target = new THREE.Vector3(0, 20, 0); //controlTarget;
+					}
+					else {
+						controls = new THREE.FirstPersonControls(camera, container);
+				        controls.lookSpeed = 0.03;
+				        controls.movementSpeed = 20;
+				        //controls.noFly = true;
+				        controls.lookVertical = true;
+				        controls.constrainVertical = true;
+				        controls.verticalMin = 1.0;
+				        controls.verticalMax = 2.0;
+				        controls.lon = -150;
+				        controls.lat = 120;
+				        controls.activeLook = false;
+					}
+
+				};
+				loaderManager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
+					console.log( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+					document.getElementById("loadingPerc").innerHTML = itemsLoaded + ' of ' + itemsTotal + ' files.'; 
+				};
+				loaderManager.onError = function ( url ) {
+					console.log( 'There was an error loading ' + url );
+				};
+
+				// CURSOR
+				var cursorGeometry = new THREE.SphereGeometry( cursorSize, 32, 32 );
+				var cursorMaterial = new THREE.MeshLambertMaterial( {color: 0xff0000} );
+				cursor = new THREE.Mesh( cursorGeometry, cursorMaterial );
+				cursor.castShadow = false;
+				cursor.receiveShadow = false;
+				//cursor.visible = false;
+				scene.add( cursor );
+
+				// POPULATING THE ENVIRONMENT
+
+				var glbLoader = new THREE.GLTFLoader(loaderManager);
+/*
+				glbLoader.load("mod/Base.glb", loadingGLB);
+				function loadingGLB(glb) {
+					var models = glb.scene.children[0];
+					models.position.set(0,20,-50);
+					models.scale.set(0.001,0.001,0.001);
+					models.rotation.set(0, -Math.PI/2, 0);
+					scene.add(models);
+				}
+*/
+				// SKY
+				loadSky();
+
+				// LIGHTS
+				var directionalLight = new THREE.DirectionalLight( 0xffffff, sunIntensity ); //0xfff9b5
+				directionalLight.castShadow = true;
+				directionalLight.position.set( 150, 15, 10 );
+				directionalLight.shadow.mapSize.width = 4096;  
+				directionalLight.shadow.mapSize.height = 4096; 
+
+				const lightD = 200;
+				directionalLight.shadow.camera.left = - lightD;
+				directionalLight.shadow.camera.right = lightD;
+				directionalLight.shadow.camera.top = lightD;
+				directionalLight.shadow.camera.bottom = - lightD;
+				directionalLight.shadow.bias = -0.001;
+
+				var directionalLightTarget = new THREE.Object3D();
+				directionalLightTarget.position.set(130, 0, 0);
+				scene.add(directionalLightTarget);
+				directionalLight.target = directionalLightTarget;
+				scene.add( directionalLight );
+
+				//var helper = new THREE.DirectionalLightHelper( directionalLight );
+				//scene.add( helper );
+
+				//const ambientLight = new THREE.AmbientLight( 0x404040, ambientIntensity );
+				//scene.add( ambientLight );
+
+				var hemiLight = new THREE.HemisphereLight( 0xffffbb, 0x080820, ambientIntensity );
+				scene.add( hemiLight );
+
+				// GRASS
+				//var grassGeometry = new THREE.PlaneBufferGeometry( 500, 500, 32 );
+				var grassGeometry =new THREE.BoxGeometry( 500, 500, 1 );
+				var grassTex = new THREE.TextureLoader().load("tex/TexturesCom_Grass0202_1_seamless_S.jpg");
+				grassTex.repeat = new THREE.Vector2(60,60);
+			  	grassTex.wrapS = THREE.RepeatWrapping;
+			  	grassTex.wrapT = THREE.RepeatWrapping;
+				var grassMaterial = new THREE.MeshBasicMaterial( {
+					color: 0x152000, 
+					map: grassTex,
+					side: THREE.DoubleSide
+				} );
+				var grassMesh = new THREE.Mesh( grassGeometry, grassMaterial );
+				grassMesh.position.set(0,-0.5,0);
+				grassMesh.rotation.set(Math.PI / 2, 0, 0);
+				scene.add( grassMesh );
+
+				// ASPHALT
+				var asphaltGeometry = new THREE.PlaneBufferGeometry( 300, 300, 32 );
+				var asphaltTex = new THREE.TextureLoader().load("tex/TexturesCom_Pavement_ConcreteHerringbone_1K_albedo.jpg");
+				var asphaltRouTex = new THREE.TextureLoader().load("tex/TexturesCom_Pavement_ConcreteHerringbone_1K_roughness.jpg");
+				asphaltTex.repeat = asphaltRouTex.repeat = new THREE.Vector2(10, 10);
+			  	asphaltTex.wrapS = asphaltRouTex.wrapS = THREE.RepeatWrapping;
+			  	asphaltTex.wrapT = asphaltRouTex.wrapT = THREE.RepeatWrapping;
+				var asphaltMaterial = new THREE.MeshPhongMaterial ( {
+					color: 0xffffff, 
+					map: asphaltTex,
+					side: THREE.DoubleSide,
+					bumpMap: asphaltRouTex,
+					bumpScale: 0.2,
+					specularMap: asphaltRouTex,
+					shininess: 10
+				} );
+				var asphaltMesh = new THREE.Mesh( asphaltGeometry, asphaltMaterial );
+				asphaltMesh.position.set(0,0.1,0);
+				asphaltMesh.rotation.set(Math.PI / 2, 0, 0);
+				asphaltMesh.castShadow = true;
+				asphaltMesh.receiveShadow = true;
+				asphaltMesh.userData.name = "Asphalt";
+				asphaltMesh.userData.changeable = true;
+				scene.add( asphaltMesh );
+				//modObjects.push(asphaltMesh);
+
+				addingGrass(grassMesh, 500, 100, 0, 200, 120000);
+				addingGrass(grassMesh, 500, 100, 0, -200, 120000);
+				addingGrass(grassMesh, 100, 300, 200, 0, 80000);
+				addingGrass(grassMesh, 100, 300, -200, 0, 80000);
+				
+				// CONTAINERS
+////////// CONTAINER A
+				var brushedAlumTex = new THREE.TextureLoader().load("tex/TexturesCom_Metal_AluminumBrushed_1K_roughness.jpg");
+				var brushedAlumNorTex = new THREE.TextureLoader().load("tex/TexturesCom_Metal_AluminumBrushed_1K_normal.jpg");
+				brushedAlumTex.repeat = brushedAlumNorTex.repeat = new THREE.Vector2(10, 10);
+				brushedAlumTex.wrapS = brushedAlumTex.wrapT = brushedAlumNorTex.wrapS = brushedAlumNorTex.wrapT = THREE.RepeatWrapping;
+				var M_ContA_External = new THREE.MeshPhysicalMaterial( {
+					clearcoat: 0.8,
+					clearcoatRoughness: 0.4,
+					metalness: 0.3,
+					roughness: 0.3,
+					color: 0x595959,
+					normalMap: brushedAlumNorTex,
+					normalScale: new THREE.Vector2( 0.35, 0.35 ),
+					envMap: hdrCubeMap,
+					envMapIntensity: 0.1
+				} );
+
+				var M_ContA_Glass = new THREE.MeshPhysicalMaterial( {
+					color: 0xffffff,
+					metalness: 0,
+					roughness: 0,
+					depthWrite: false,
+					transparency: 0.7, 	// use material.transparency for glass materials
+					opacity: 1,     	// set material.opacity to 1 when material.transparency is non-zero
+					transparent: true,
+					name: "M_ContA_Glass",
+					envMap: hdrCubeMap
+				} );
+				var M_ContA_GlassShadow = new THREE.ShadowMaterial( { opacity : 0.5 } );
+  				M_ContA_GlassShadow.opacity = 0.5;
+
+  				var M_ContA_DoorFrame = new THREE.MeshStandardMaterial ( {
+					color: 0x000000,
+					envMap: hdrCubeMap,
+					envMapIntensity: 0.05,
+					roughness: 0.3,
+					metalness: 0.7
+				} );
+
+  				var floorTex = new THREE.TextureLoader().load("tex/TexturesCom_Wood_CompositeDecking3_1K_albedo.jpg");
+				var floorRouTex = new THREE.TextureLoader().load("tex/TexturesCom_Wood_CompositeDecking3_1K_ao.jpg");
+				floorTex.repeat = floorRouTex.repeat = new THREE.Vector2(5, 5);
+			  	floorTex.wrapS = floorRouTex.wrapS = THREE.RepeatWrapping;
+			  	floorTex.wrapT = floorRouTex.wrapT = THREE.RepeatWrapping;
+				var M_ContA_Floor = new THREE.MeshPhongMaterial ( {
+					color: 0xffffff,
+					map: floorTex,
+					bumpMap: floorRouTex,
+					bumpScale: 0.2,
+					specularMap: floorRouTex, 
+					shininess: 10
+				} );
+
+				var M_ContA_Walls = new THREE.MeshPhongMaterial ( {
+					color: 0xf0f1d0,
+					shininess: 2
+				} );
+
+				var M_ContA_Ceiling = new THREE.MeshLambertMaterial({
+					color: 0xfff661,
+					emissive: 0x333333
+				});
+
+				var M_ContA_BulbFrame = new THREE.MeshPhongMaterial( { 
+				    color: 0x996633,
+				    //envMap: envMap, // optional environment map
+				    specular: 0x050505,
+				    shininess: 100
+				} );
+
+				var M_ContA_Bulb = new THREE.MeshLambertMaterial({
+					color: 0xffffff,
+					emissive: 0xffffff
+				});
+
+				glbLoader.load("mod/ContainerA.glb", loadingContainerA);
+				function loadingContainerA(glb) {
+					var model = glb.scene.children[0];
+					model.position.set(-100, 3.2, 12);
+					model.scale.set(0.001,0.001,0.001);
+					model.rotation.set(0, -Math.PI/2, 0);
+
+					replaceMaterial(model, "ContA_Ext", M_ContA_External);
+					replaceMaterial(model, "ContA_Glass", M_ContA_Glass);
+					replaceMaterial(model, "ContA_WindowFrame", M_ContA_DoorFrame);
+					replaceMaterial(model, "ContA_Floor", M_ContA_Floor);
+					replaceMaterial(model, "ContA_IntWall", M_ContA_Walls);
+					replaceMaterial(model, "ContA_Ceiling", M_ContA_Ceiling);
+					replaceMaterial(model, "ContA_BulbFrame", M_ContA_BulbFrame);
+					replaceMaterial(model, "ContA_Bulb", M_ContA_Bulb);
+
+					var meshes = findMeshesInChildren(model);
+					for(var m = 0; m < meshes.length; m++){
+						if(meshes[m].material === M_ContA_Glass)
+							continue;
+      					meshes[m].userData.changeable = true;
+      					modObjects.push(meshes[m]);
+    				}
+					
+					scene.add(model);
+					setShadowInAllChildren(model.children, true, true);
+
+					var glasses = findObjsWithMaterial(model, "M_ContA_Glass");
+					for(var k = 0; k < glasses.length; k++){
+      					glasses[k].castShadow = false;
+    				}
+				}
+
+////////// CONTAINER C
+				var M_Cont_Rail = new THREE.MeshStandardMaterial({
+					color: 0x333333, 
+					roughness: 0,
+					envMap: hdrCubeMap
+				});
+
+				var M_Cont_Stairs = new THREE.MeshStandardMaterial({
+					color: 0x111111, 
+					roughness: 0.2,
+					envMap: hdrCubeMap,
+					envMapIntensity: 0.1
+				});
+
+				var T_ChildrenRug = new THREE.TextureLoader().load("tex/T_ChildrenRug.jpg");
+				var M_ChildrenRug = new THREE.MeshStandardMaterial({
+					color: 0x999999,
+					map: T_ChildrenRug
+				});
+
+				var T_ContC_Sofa = new THREE.TextureLoader().load("tex/TexturesCom_Leather_Italian_512_albedo.jpg");
+				var T_ContC_Sofa_R = new THREE.TextureLoader().load("tex/TexturesCom_Leather_Italian_512_refl.jpg");
+				T_ContC_Sofa.repeat = T_ContC_Sofa_R.repeat = new THREE.Vector2(50, 50);
+			  	T_ContC_Sofa.wrapS = T_ContC_Sofa_R.wrapS = THREE.RepeatWrapping;
+			  	T_ContC_Sofa.wrapT = T_ContC_Sofa_R.wrapT = THREE.RepeatWrapping;
+				var M_ContC_Sofa = new THREE.MeshPhongMaterial({
+					color: 0xffffff,
+					map: T_ContC_Sofa,
+					bumpMap: T_ContC_Sofa_R,
+					bumpScale: 0.05,
+					specularMap: T_ContC_Sofa_R
+				});
+
+				var T_ContC_Table = new THREE.TextureLoader().load("tex/TexturesCom_Wood_Wenge_512_albedo.jpg");
+				var T_ContC_Table_R = new THREE.TextureLoader().load("tex/TexturesCom_Wood_Wenge_512_ao.jpg");
+				T_ContC_Table.repeat = T_ContC_Table_R.repeat = new THREE.Vector2(4, 4);
+			  	T_ContC_Table.wrapS = T_ContC_Table_R.wrapS = THREE.RepeatWrapping;
+			  	T_ContC_Table.wrapT = T_ContC_Table_R.wrapT = THREE.RepeatWrapping;
+				var M_ContC_Table = new THREE.MeshPhongMaterial({
+					color: 0xffffff,
+					map: T_ContC_Table,
+					bumpMap: T_ContC_Table_R,
+					bumpScale: 0.05,
+					specularMap: T_ContC_Table_R,
+					shininess: 90,
+					specular: 0xffffff
+				});
+
+				glbLoader.load("mod/ContainerC.glb", loadingContainerC);
+				function loadingContainerC(glb) {
+					var model = glb.scene.children[0];
+					model.position.set(80, 1.4, 0);
+					model.scale.set(0.001,0.001,0.001);
+					model.rotation.set(0, -Math.PI/2, 0);
+
+					var M_ContC_External = M_ContA_External.clone();
+					M_ContC_External.color.setHex(0x0040b4);
+					replaceMaterial(model, "ContC_Ext", M_ContC_External);
+					replaceMaterial(model, "ContC_Glass", M_ContA_Glass);
+					replaceMaterial(model, "ContC_GlassFrame", M_ContA_DoorFrame.clone());
+					replaceMaterial(model, "ContC_Floor", M_ContA_Floor.clone());
+					replaceMaterial(model, "ContC_InnerWall", M_ContA_Walls.clone());
+					replaceMaterial(model, "ContC_Ceiling", M_ContA_Ceiling.clone());
+					replaceMaterial(model, "ContC_BulbFrame", M_ContA_BulbFrame.clone());
+					replaceMaterial(model, "ContC_Bulb", M_ContA_Bulb.clone());
+					replaceMaterial(model, "ContC_Rail", M_Cont_Rail);
+					replaceMaterial(model, "ContC_Frame", M_ContA_External.clone());
+					replaceMaterial(model, "ContC_Stairs", M_Cont_Stairs);
+					replaceMaterial(model, "ContC_PlayRug", M_ChildrenRug);
+					replaceMaterial(model, "ContC_SofaFabric", M_ContC_Sofa);
+					replaceMaterial(model, "ContC_TableWood", M_ContC_Table);
+
+					var meshes = findMeshesInChildren(model);
+					for(var m = 0; m < meshes.length; m++){
+						if(meshes[m].material === M_ContA_Glass)
+							continue;
+      					meshes[m].userData.changeable = true;
+      					modObjects.push(meshes[m]);
+    				}
+					
+					
+					model.castShadow = true;
+					model.receiveShadow = true;
+					setShadowInAllChildren(model.children, true, true);
+//console.log(model);
+scene.add(model);
+					var glasses = findObjsWithMaterial(model, "M_ContA_Glass");
+					for(var k = 0; k < glasses.length; k++){
+      					glasses[k].castShadow = false;
+    				}	
+				}
+
+////////// CONTAINER B
+
+				var T_ContE_Eldapoint = new THREE.TextureLoader().load("tex/eldapointBigTex.jpg");
+				T_ContE_Eldapoint.rotation = Math.PI / 2 * 3;
+				T_ContE_Eldapoint.offset = new THREE.Vector2(0, 0);
+				T_ContE_Eldapoint.repeat.x = - 1;
+				var M_ContE_Eldapoint = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					map: T_ContE_Eldapoint
+				});
+
+				var T_ContB_InnerWall = new THREE.TextureLoader().load("tex/TexturesCom_Wood_CompositeDecking2_1K.jpg");
+				T_ContB_InnerWall.rotation = Math.PI / 2;
+				T_ContB_InnerWall.repeat = new THREE.Vector2(2, 2);
+			  	T_ContB_InnerWall.wrapS = T_ContB_InnerWall.wrapT = THREE.RepeatWrapping;
+				var M_ContB_InnerWall = new THREE.MeshStandardMaterial({
+					color: 0xff9c00,
+					map: T_ContB_InnerWall,
+					bumpMap: T_ContB_InnerWall,
+					bumpScale: 0.2
+				});
+
+				var T_ContD_Floor = new THREE.TextureLoader().load("tex/TexturesCom_Wood_ParquetStrip2_1K_albedo.jpg");
+				T_ContD_Floor.repeat = new THREE.Vector2(3, 3);
+				T_ContD_Floor.wrapS = T_ContD_Floor.wrapT = THREE.RepeatWrapping;
+				var M_ContD_Floor = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					map: T_ContD_Floor,
+					metalness: 1
+				});
+
+				var T_ContD_InnerWall = new THREE.TextureLoader().load("tex/TexturesCom_PaperDecorative0059_1_seamless_S.jpg");
+				T_ContD_InnerWall.repeat = new THREE.Vector2(5, 5);
+				T_ContD_InnerWall.wrapS = T_ContD_InnerWall.wrapT = THREE.RepeatWrapping;
+				var M_ContD_InnerWall = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					map: T_ContD_InnerWall
+				});
+
+				glbLoader.load("mod/ContainerB.glb", loadingContainerB);
+				function loadingContainerB(glb) {
+					var model = glb.scene.children[0];
+					model.position.set(0, 19, -50);
+					model.scale.set(0.1,0.1,0.1);
+					model.rotation.set(0, -Math.PI / 2, 0);
+
+					replaceMaterial(model, "ContB_Glass", M_ContA_Glass);
+					replaceMaterial(model, "ContB_Ext", M_ContA_External.clone());
+					replaceMaterial(model, "ContD_Rail", M_Cont_Rail);
+					replaceMaterial(model, "ContB_WindowFrame", M_ContA_DoorFrame.clone());
+
+					var M_ContB_Floor = M_ContA_Floor.clone();
+					var T_ContB_floorTex = new THREE.TextureLoader().load("tex/TexturesCom_Tiles_SmallCircle_1K_albedo.jpg");
+					var T_ContB_floorRouTex = new THREE.TextureLoader().load("tex/TexturesCom_Tiles_SmallCircle_1K_roughness.jpg");
+					var T_ContB_floorBumpTex = new THREE.TextureLoader().load("tex/TexturesCom_Tiles_SmallCircle_1K_bump.jpg");
+					T_ContB_floorTex.repeat = T_ContB_floorRouTex.repeat = T_ContB_floorBumpTex.repeat = new THREE.Vector2(4, 4);
+					T_ContB_floorTex.wrapS = T_ContB_floorRouTex.wrapS = T_ContB_floorBumpTex.wrapS = THREE.RepeatWrapping;
+			  		T_ContB_floorTex.wrapT = T_ContB_floorRouTex.wrapT = T_ContB_floorBumpTex.wrapT = THREE.RepeatWrapping;
+					M_ContB_Floor.map = T_ContB_floorTex;
+					M_ContB_Floor.specularMap = T_ContB_floorRouTex;
+					M_ContB_Floor.bumpMap = T_ContB_floorBumpTex;
+					replaceMaterial(model, "ContB_Floor", M_ContB_Floor);
+
+					replaceMaterial(model, "ContB_Frame", M_ContA_External.clone());
+					replaceMaterial(model, "ContB_InnerWall", M_ContB_InnerWall);
+					replaceMaterial(model, "ContB_Ceiling", M_ContA_Ceiling.clone());
+					replaceMaterial(model, "ContB_BulbFrame", M_ContA_BulbFrame.clone());
+					replaceMaterial(model, "ContB_Bulb", M_ContA_Bulb.clone());
+
+					// Container D
+					var M_ContD_External = M_ContA_External.clone();
+					M_ContD_External.color.setHex(0x67d001);
+					replaceMaterial(model, "ContD_Ext", M_ContD_External);
+					replaceMaterial(model, "ContD_Floor", M_ContD_Floor);
+					replaceMaterial(model, "ContD_InnerWall", M_ContD_InnerWall);
+
+					// Container E
+					var M_ContE_External = M_ContA_External.clone();
+					M_ContE_External.color.setHex(0xff0000);
+					replaceMaterial(model, "ContE_Ext", M_ContE_External);
+					replaceMaterial(model, "ContE_EldaPoint", M_ContE_Eldapoint);
+
+					var meshes = findMeshesInChildren(model);
+					for(var m = 0; m < meshes.length; m++){
+						if(meshes[m].material === M_ContA_Glass)
+							continue;
+      					meshes[m].userData.changeable = true;
+      					modObjects.push(meshes[m]);
+    				}
+
+					scene.add(model);
+					setShadowInAllChildren(model.children, true, true);	
+
+					var glasses = findObjsWithMaterial(model, "M_ContA_Glass");
+					for(var k = 0; k < glasses.length; k++){
+      					glasses[k].castShadow = false;
+    				}
+				}
+
+				var T_Objs_Sofa_AO = new THREE.TextureLoader().load("tex/B_Objs_Sofa_AO.jpg");
+				var M_Objs_Sofa = new THREE.MeshStandardMaterial({
+					color: 0xff0000,
+					aoMap: T_Objs_Sofa_AO,
+					aoMapIntensity: 0.6,
+					name: "M_Objs_Sofa",
+					roughness: 0.2
+				}); 
+
+				var M_Objs_Metal = M_ContA_External.clone();
+				var T_Objs_Table_Wood = new THREE.TextureLoader().load("tex/TexturesCom_Wood_MapleVeneer_512_albedo.jpg");
+				T_Objs_Table_Wood.repeat = new THREE.Vector2(5, 5);
+				T_Objs_Table_Wood.wrapS = T_ContD_InnerWall.wrapT = THREE.RepeatWrapping;
+				var M_Objs_Table_Wood = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					map: T_Objs_Table_Wood
+				});
+
+				glbLoader.load("mod/ContainerB_Objects.glb", loadingContainerBobj);
+				function loadingContainerBobj(glb) {
+					var model = glb.scene.children[0];
+					model.position.set(-9, 15, -78);
+					model.scale.set(0.1,0.1,0.1);
+					model.rotation.set(0, -Math.PI / 2, 0);
+
+					replaceMaterial(model, "B_Sofa", M_Objs_Sofa);
+					replaceMaterial(model, "B_Table_Metal", M_Objs_Metal);
+					replaceMaterial(model, "B_TableHigh_Metal", M_Objs_Metal);
+					replaceMaterial(model, "B_Steel", M_Objs_Metal);
+					replaceMaterial(model, "B_Table_Wood", M_Objs_Table_Wood);
+					replaceMaterial(model, "B_TableHigh", M_Objs_Table_Wood);
+
+					scene.add(model);
+					setShadowInAllChildren(model.children, true, true);	
+				}
+
+				var T_Objs_Curtain = new THREE.TextureLoader().load("tex/Cloth_D.jpg");
+				var T_Objs_Curtain_B = new THREE.TextureLoader().load("tex/Cloth_B.jpg");
+				T_Objs_Curtain.repeat = T_Objs_Curtain_B.repeat = new THREE.Vector2(5, 5);
+				T_Objs_Curtain.wrapS = T_Objs_Curtain.wrapT = THREE.RepeatWrapping;
+				T_Objs_Curtain_B.wrapS = T_Objs_Curtain_B.wrapT = THREE.RepeatWrapping;
+				var M_Objs_Curtain = new THREE.MeshPhysicalMaterial({
+					map: T_Objs_Curtain,
+					transparent: true,
+					side: THREE.DoubleSide,
+					opacity: 0.85,
+					bumpMap: T_Objs_Curtain_B,
+					bumpScale: 0.2
+				});
+
+				var T_Objs_RoomWood = new THREE.TextureLoader().load("tex/TexturesCom_Wood_Worn2_1K_albedo.jpg");
+				T_Objs_RoomWood.repeat = new THREE.Vector2(5, 5);
+				T_Objs_RoomWood.wrapS = T_Objs_RoomWood.wrapT = THREE.RepeatWrapping;
+				var M_Objs_RoomWood = new THREE.MeshStandardMaterial({
+					color: 0xffe2d2,
+					map: T_Objs_RoomWood,
+					roughness: 0.3,
+					metalness: 0.2
+				});
+
+				var M_Objs_Blanket = new THREE.MeshStandardMaterial({
+					color: 0xffe2d2,
+					roughness: 0.9,
+					bumpMap: T_Objs_Curtain_B,
+					bumpScale: 0.05
+				});
+
+				var T_Objs_Canvas = new THREE.TextureLoader().load("tex/Pano_02.jpg");
+				var M_Objs_Canvas = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					map: T_Objs_Canvas,
+					roughness: 0.1,
+					metalness: 0.2,
+					envMap: hdrCubeMap,
+					envMapIntensity: 0.1
+				});
+
+				var M_Objs_CeilingLamp = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					roughness: 0.2,
+					envMap: hdrCubeMap,
+					envMapIntensity: 0.2
+				}); 
+
+				var M_Objs_Lamp = M_Objs_CeilingLamp.clone();
+				M_Objs_Lamp.color.setHex(0xa85892);
+
+				glbLoader.load("mod/ContainerD_Objects.glb", loadingContainerDobj);
+				function loadingContainerDobj(glb) {
+					var model = glb.scene.children[0];
+					model.position.set(3, 41, -102);
+					model.scale.set(0.1,0.1,0.1);
+					model.rotation.set(0, -Math.PI / 2, 0);
+
+					replaceMaterial(model, "Curtain", M_Objs_Curtain);
+					replaceMaterial(model, "Wood", M_Objs_RoomWood);
+					replaceMaterial(model, "Blanket", M_Objs_Blanket);
+					replaceMaterial(model, "Canvas", M_Objs_Canvas);
+					replaceMaterial(model, "CeilingLamp", M_Objs_CeilingLamp);
+					replaceMaterial(model, "Lamp_Ceramic", M_Objs_Lamp);
+
+					scene.add(model);
+					setShadowInAllChildren(model.children, true, true);	
+				}
+
+				//setShadowInAllChildren(scene.children, true, true);
+
+				// Mouse events 
+				window.addEventListener( 'mousemove', onMouseMove, false );
+				window.addEventListener("click", onClick, true);
+				container.addEventListener( 'mousedown', onMouseDown, false );
+				container.addEventListener( 'mouseup', onMouseUp, false );
+
+			}
+
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+			function animate() {
+				requestAnimationFrame( animate );
+
+				var renderTarget, cubeMap;
+				renderTarget = hdrCubeRenderTarget;
+				cubeMap = hdrCubeMap;
+				scene.background = cubeMap;
+				renderer.toneMappingExposure = rendereExposure;
+
+				renderer.render( scene, camera );
+				update();
+				drawGrass();
+			}
+
+			function update() {
+
+				if(controls && !isMobile)
+					controls.update(clock.getDelta());
+
+				if(colorPickerOpen)
+					return;
+
+				// update the picking ray with the camera and mouse position
+				raycaster.setFromCamera( mouse, camera );
+
+				// calculate objects intersecting the picking ray
+				var intersects = raycaster.intersectObjects( modObjects );
+
+				var minD = 1000;
+				var selObj;
+				var selPoint;
+				for ( var i = 0; i < intersects.length; i++ ) {
+					if(intersects[ i ].object.userData.changeable === true && intersects[ i ].distance < minD)
+					{
+						minD = intersects[ i ].distance;
+						selObj = intersects[ i ].object;
+						selPoint = intersects[ i ].point;
+					}
+				}
+				if(selObj){
+					cursor.visible = true;
+					cursor.position.set(selPoint.x, selPoint.y, selPoint.z);
+					onMouseObj = selObj;
+				}
+				else {
+					cursor.visible = false;
+					onMouseObj = null;
+				}
+			}
+
+			function drawGrass(){
+        		//Update time
+        		thisFrame = Date.now();
+        		time += (thisFrame - lastFrame) / 1500; 
+        		lastFrame = thisFrame;
+        		if(grassBladeMat){
+        			grassBladeMat.uniforms.time.value = time;
+        		}
+      		}
+
+      		function findObjsWithName(obj, name)
+			{
+				var array = [];
+    			for ( var i = 0; i < obj.children.length; i++ ) 
+    			{
+      				if(obj.children[i].name == name)
+        				array.push(obj.children[i]);
+
+      				if(obj.children[i].children.length > 0){
+        				var array1 = findObjsWithName(obj.children[i], name);
+        				for(var k = 0; k < array1.length; k++){
+          					array.push(array1[k]);
+        				}
+      				}
+    			}
+    			return array;
+  			}
+
+  			function findObjsWithNameStart(obj, start)
+  			{
+  				var array = [];
+    			for ( var i = 0; i < obj.children.length; i++ ) 
+    			{
+    				if(obj.children[i].name.startsWith(start)){
+        				array.push(obj.children[i]);
+    				}
+
+      				if(obj.children[i].children.length > 0){
+        				var array1 = findObjsWithNameStart(obj.children[i], start);
+        				for(var k = 0; k < array1.length; k++){
+          					array.push(array1[k]);
+        				}
+      				}
+    			}
+    			return array;
+  			}
+
+  			function findObjsWithMaterial(obj, matName)
+			{
+				var array = [];
+    			for ( var i = 0; i < obj.children.length; i++ ) 
+    			{
+    				if(obj.children[i].material && obj.children[i].material.name === matName ) {
+						array.push(obj.children[i]);
+    				}
+
+      				if(obj.children[i].children.length > 0){
+        				var array1 = findObjsWithMaterial(obj.children[i], matName);
+        				for(var k = 0; k < array1.length; k++){
+          					array.push(array1[k]);
+        				}
+      				}
+    			}
+    			return array;
+  			}
+
+  			function replaceMaterial(obj, matName, newMat) {
+  				var array = findObjsWithMaterial(obj, matName);
+  				if(array.length > 0){
+  					for(var k = 0; k < array.length; k++){
+          				array[k].material = newMat;
+        			}
+  				}
+  				else {
+  					console.warn("No matching material found! (" + matName + ")");
+  				}
+  			}
+
+  			function findMeshesInChildren(obj) {
+  				var array = [];
+  				for ( var i = 0; i < obj.children.length; i++ ) 
+    			{
+      				if(obj.children[i] instanceof THREE.Object3D )
+        				array.push(obj.children[i]);
+
+      				if(obj.children[i].children.length > 0){
+        				var array1 = findMeshesInChildren(obj.children[i]);
+        				for(var k = 0; k < array1.length; k++){
+          					array.push(array1[k]);
+        				}
+      				}
+    			}
+    			return array;
+  			}
+
+  			function onMouseMove( event ) {
+				// calculate mouse position in normalized device coordinates
+				// (-1 to +1) for both components
+
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+			}
+
+			function onClick( event ) {
+				
+				if(!onMouseObj)
+					return;
+
+				controls.enabled = false;
+
+				if(!colorPickerOpen)  {
+					colorPickerOpen = true;
+
+					if((event.clientY + colorPickerDivHeight) > window.innerHeight) {
+						colorPicker.style.top = window.innerHeight - colorPickerDivHeight - 15 + "px";
+					}
+					else {
+						colorPicker.style.top = event.clientY - 15 + "px";
+					}
+
+					if((event.clientX + colorPickerDivWidth) > window.innerWidth) {
+						colorPicker.style.left = window.innerWidth - colorPickerDivWidth - 15 + "px";
+					}
+					else {
+						colorPicker.style.left = event.clientX + 15 + "px";
+					}
+					
+					colorPicker.style.display = "block";
+					originalColor = onMouseObj.material.color;
+				}
+			}
+
+			function onMouseDown( event ) {
+				//controls.enabled = true;
+				if(colorPickerOpen)  {
+					console.log("color");
+				}
+			}
+			function onMouseUp( event ) {
+				//controls.enabled = false;
+			}
+
+			colorPickerIro.on('color:change', function(color) {
+			  	// log the current color as a HEX string
+			  	//console.log(color.rgba);
+			  	selectedColor = new THREE.Color(color.rgb.r / 255, color.rgb.g / 255, color.rgb.b / 255);
+			  	onMouseObj.material.color = selectedColor;
+			});
+
+			function closingColorPicker (event) {
+				//console.log("closingColorPicker");
+				colorPicker.style.display = "none";
+				controls.enabled = true;
+				colorPickerOpen = false;
+				console.log("closing");
+				//console.log(onMouseObj.material.color);
+				//console.log(originalColor);
+				onMouseObj.material.color = originalColor;
+				//console.log(onMouseObj.material.color);
+				//console.log(originalColor);
+			}
+
+			function applyingColorPicker (event) {
+				closingColorPicker (event);
+				onMouseObj.material.color = selectedColor;
+			}
+
+
+			function addingGrass(groundMesh, width, heigth, centreX, centreZ, instances) 
+			{
+				//Variables for blade mesh
+		    	var joints = 5;
+		      	var w_ = 0.12;
+		      	var h_ = 1;
+
+		      	//Patch side length
+		      	//var width = 500;
+
+		      	//Number of blades
+		      	//var instances = 500000;
+
+		      	//http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/code/index.htm
+      			function multiplyQuaternions(q1, q2){
+      				var x, y, z, w;
+			        x =  q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x;
+			        y = -q1.x * q2.z + q1.y * q2.w + q1.z * q2.x + q1.w * q2.y;
+			        z =  q1.x * q2.y - q1.y * q2.x + q1.z * q2.w + q1.w * q2.z;
+			        w = -q1.x * q2.x - q1.y * q2.y - q1.z * q2.z + q1.w * q2.w;
+			        return new THREE.Vector4(x, y, z, w);
+      			}
+
+      			//************** Shader sources **************
+      			var vertexSource = `
+      			precision mediump float;
+      			uniform mat4 modelViewMatrix;
+      			uniform mat4 projectionMatrix;
+      			attribute vec3 position;
+		      	attribute vec3 offset;
+		      	attribute vec2 uv;
+		      	attribute vec4 orientation;
+		      	attribute float halfRootAngleSin;
+		      	attribute float halfRootAngleCos;
+		      	attribute float stretch;
+		      	uniform float time;
+		      	varying vec2 vUv;
+		      	varying float frc;
+
+		      	//WEBGL-NOISE FROM https://github.com/stegu/webgl-noise
+
+		      	//Description : Array and textureless GLSL 2D simplex noise function. Author : Ian McEwan, Ashima Arts. Maintainer : stegu Lastmod : 20110822 (ijm) License : Copyright (C) 2011 Ashima Arts. All rights reserved. Distributed under the MIT License. See LICENSE file. https://github.com/ashima/webgl-noise https://github.com/stegu/webgl-noise
+
+		      	vec3 mod289(vec3 x) {return x - floor(x * (1.0 / 289.0)) * 289.0;} vec2 mod289(vec2 x) {return x - floor(x * (1.0 / 289.0)) * 289.0;} vec3 permute(vec3 x) {return mod289(((x*34.0)+1.0)*x);} float snoise(vec2 v){const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439); vec2 i  = floor(v + dot(v, C.yy) ); vec2 x0 = v -   i + dot(i, C.xx); vec2 i1; i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0); vec4 x12 = x0.xyxy + C.xxzz; x12.xy -= i1; i = mod289(i); vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 )); vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0); m = m*m ; m = m*m ; vec3 x = 2.0 * fract(p * C.www) - 1.0; vec3 h = abs(x) - 0.5; vec3 ox = floor(x + 0.5); vec3 a0 = x - ox; m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h ); vec3 g; g.x  = a0.x  * x0.x  + h.x  * x0.y; g.yz = a0.yz * x12.xz + h.yz * x12.yw; return 130.0 * dot(m, g);}
+		      	//END NOISE
+
+		      	//https://www.geeks3d.com/20141201/how-to-rotate-a-vertex-by-a-quaternion-in-glsl/
+		      	vec3 rotateVectorByQuaternion( vec3 v, vec4 q){
+		        	return 2.0 * cross(q.xyz, v * q.w + cross(q.xyz, v)) + v;
+		      	}
+
+		      	//https://en.wikipedia.org/wiki/Slerp
+		      	vec4 slerp(vec4 v0, vec4 v1, float t) {
+			        // Only unit quaternions are valid rotations.
+			        // Normalize to avoid undefined behavior.
+			        normalize(v0);
+			        normalize(v1);
+
+			        // Compute the cosine of the angle between the two vectors.
+			        float dot_ = dot(v0, v1);
+
+			        // If the dot product is negative, slerp won't take
+			        // the shorter path. Note that v1 and -v1 are equivalent when
+			        // the negation is applied to all four components. Fix by 
+			        // reversing one quaternion.
+			        if (dot_ < 0.0) {
+		          		v1 = -v1;
+		          		dot_ = -dot_;
+		        	}  
+
+			        const float DOT_THRESHOLD = 0.9995;
+			        if (dot_ > DOT_THRESHOLD) {
+			          	// If the inputs are too close for comfort, linearly interpolate
+			          	// and normalize the result.
+
+			          	vec4 result = t*(v1 - v0) + v0;
+			          	normalize(result);
+			          	return result;
+			        }
+
+			        // Since dot is in range [0, DOT_THRESHOLD], acos is safe
+			        float theta_0 = acos(dot_);       // theta_0 = angle between input vectors
+			        float theta = theta_0*t;          // theta = angle between v0 and result
+			        float sin_theta = sin(theta);     // compute this value only once
+			        float sin_theta_0 = sin(theta_0); // compute this value only once
+
+			        float s0 = cos(theta) - dot_ * sin_theta / sin_theta_0;  // == sin(theta_0 - theta) / sin(theta_0)
+			        float s1 = sin_theta / sin_theta_0;
+
+			        return (s0 * v0) + (s1 * v1);
+		      	}
+
+		      	void main() {
+
+			        //Relative position of vertex along the mesh Y direction
+			        frc = position.y/float(` + h_ + `);
+
+			        //Get wind data from simplex noise 
+			        float noise = 1.0-(snoise(vec2((time-offset.x/50.0), (time-offset.z/50.0)))); 
+
+			        //Define the direction of an unbent blade of grass rotated around the Y axis
+			        vec4 direction = vec4(0.0, halfRootAngleSin, 0.0, halfRootAngleCos);
+
+			        //Interpolate between the unbent direction and the direction of growth calculated on the CPU. 
+			        //Using the relative location of the vertex along the Y axis as the weight, we get a smooth bend
+			        direction = slerp(direction, orientation, frc);
+			        vec3 vPosition = vec3(position.x, position.y + position.y * stretch, position.z);
+			        vPosition = rotateVectorByQuaternion(vPosition, direction);
+
+			        //Apply wind
+			        float halfAngle = noise * 0.15;
+			        vPosition = rotateVectorByQuaternion(vPosition, normalize(vec4(sin(halfAngle), 0.0, -sin(halfAngle), cos(halfAngle))));
+
+			        //UV for texture
+			        vUv = uv;
+
+			        //Calculate final position of the vertex from the world offset and the above shenanigans 
+			        gl_Position = projectionMatrix * modelViewMatrix * vec4(offset + vPosition, 1.0 );
+		      	}`;
+
+		      	var fragmentSource = `
+		      	precision mediump float;
+		      	uniform sampler2D map;
+		      	uniform sampler2D alphaMap;
+		      	varying vec2 vUv;
+		      	varying float frc;
+
+		      	void main() {
+			        //Get transparency information from alpha map
+			        float alpha = texture2D(alphaMap, vUv).r;
+			        //If transparent, don't draw
+			        if(alpha < 0.15){
+			          discard;
+			        }
+			        //Get colour data from texture
+			        vec4 col = vec4(texture2D(map, vUv));
+			        //Add more green towards root
+			        col = mix(vec4(0.0, 0.6, 0.0, 1.0), col, frc);
+			        //Add a shadow towards root
+			        col = mix(vec4(0.0, 0.1, 0.0, 1.0), col, frc);
+			        gl_FragColor = col;
+		      	}`;
+
+		      	//************** Setup **************
+      			//Use noise.js library to generate a grid of 2D simplex noise values
+      			noise.seed(Math.random());
+
+      			function getYPosition(x, z){
+        			var y = 2*noise.simplex2(x/50, z/50);
+        			y += 4*noise.simplex2(x/100, z/100);
+        			y += 0.2*noise.simplex2(x/10, z/10);
+        			return y;
+      			};
+
+      			//The ground
+		      	var ground_geometry = new THREE.PlaneGeometry(width, heigth, 32, 32);
+		      	ground_geometry.lookAt(new THREE.Vector3(0,1,0));
+		      	ground_geometry.verticesNeedUpdate = true;
+		      	var ground_material = new THREE.MeshPhongMaterial({color: 0x002300});
+		      	var ground = new THREE.Mesh(ground_geometry, ground_material);
+		      	ground.position.set(centreX, groundMesh.position.y, centreZ);
+
+		      	for (var i = 0; i < ground.geometry.vertices.length; i++){
+		        	var v = ground.geometry.vertices[i];
+		        	//v.y = getYPosition(v.x, v.z); 
+		        	v.y = ground.position.y;
+		      	}
+		      	ground.geometry.computeVertexNormals();
+		      	//scene.add(ground);
+
+		      	//Define base geometry that will be instanced. We use a plane for an individual blade of grass
+		      	var base_geometry = new THREE.PlaneBufferGeometry(w_, h_, 1, joints);
+		      	base_geometry.translate(0,h_/2,0);
+		      	var base_material = new THREE.MeshPhongMaterial({color: 0xff0000, side: THREE.DoubleSide});
+		      	var base_blade = new THREE.Mesh(base_geometry, base_material);
+		      	base_blade.frustumCulled = false;
+
+      			//From:
+      			//https://github.com/mrdoob/three.js/blob/master/examples/webgl_buffergeometry_instancing_dynamic.html
+      			var instanced_geometry = new THREE.InstancedBufferGeometry();
+
+		      	//************** Attributes **************
+		      	instanced_geometry.index = base_geometry.index;
+		      	instanced_geometry.attributes.position = base_geometry.attributes.position;
+		      	instanced_geometry.attributes.uv = base_geometry.attributes.uv;
+
+		      	// Each instance has its own data for position, rotation and scale
+		      	var offsets = [];
+		      	var orientations = [];
+		      	var stretches = [];
+		      	var halfRootAngleSin = [];
+		      	var halfRootAngleCos = [];
+
+		      	//Temp variables
+		      	var quaternion_0 = new THREE.Vector4();
+		      	var quaternion_1 = new THREE.Vector4();
+		      	var x, y, z, w;
+
+		      	//The min and max angle for the growth direction (in radians)
+		      	var min = -0.25;
+		      	var max =  0.25;
+
+      			//For each instance of the grass blade
+      			for (var i = 0; i < instances; i++){
+        			//Offset of the roots
+			        x = Math.random() * width - width/2;
+			        z = Math.random() * heigth - heigth/2;
+			        //if(x > exceptionXmin && x < exceptionXmax && z > exceptionZmin && z < exceptionZmax){
+			        //	continue;
+			        //}
+
+			        //y = getYPosition(x, z); 
+			        y = groundMesh.position.y;
+			        offsets.push( x, y, z);
+
+			        //Define random growth directions
+			        //Rotate around Y
+			        var angle = Math.PI - Math.random() * (2 * Math.PI);
+			        halfRootAngleSin.push(Math.sin(0.5*angle));
+			        halfRootAngleCos.push(Math.cos(0.5*angle));
+
+			        var RotationAxis = new THREE.Vector3(0, 1, 0);
+			        var x = RotationAxis.x * Math.sin(angle / 2.0);
+			        var y = RotationAxis.y * Math.sin(angle / 2.0);
+			        var z = RotationAxis.z * Math.sin(angle / 2.0);
+			        var w = Math.cos(angle / 2.0);
+			        quaternion_0.set( x, y, z, w).normalize();
+
+			        //Rotate around X
+			        angle = Math.random() * (max - min) + min;
+			        RotationAxis = new THREE.Vector3(1, 0, 0);
+			        x = RotationAxis.x * Math.sin(angle / 2.0);
+			        y = RotationAxis.y * Math.sin(angle / 2.0);
+			        z = RotationAxis.z * Math.sin(angle / 2.0);
+			        w = Math.cos(angle / 2.0);
+			        quaternion_1.set( x, y, z, w).normalize();
+
+			        //Combine rotations to a single quaternion
+			        quaternion_0 = multiplyQuaternions(quaternion_0, quaternion_1);
+
+			        //Rotate around Z
+			        angle = Math.random() * (max - min) + min;
+			        RotationAxis = new THREE.Vector3(0, 0, 1);
+			        x = RotationAxis.x * Math.sin(angle / 2.0);
+			        y = RotationAxis.y * Math.sin(angle / 2.0);
+			        z = RotationAxis.z * Math.sin(angle / 2.0);
+			        w = Math.cos(angle / 2.0);
+			        quaternion_1.set( x, y, z, w).normalize();
+
+			        //Combine rotations to a single quaternion
+			        quaternion_0 = multiplyQuaternions(quaternion_0, quaternion_1);
+
+			        orientations.push(quaternion_0.x, quaternion_0.y, quaternion_0.z, quaternion_0.w);
+
+        			//Define variety in height
+        			if(i < instances/3){
+          				stretches.push(Math.random() * 1.8);
+        			}else{
+          				stretches.push(Math.random()); 
+        			}
+      			}
+
+		      	var offsetAttribute = new THREE.InstancedBufferAttribute( new Float32Array( offsets ), 3);
+		      	var stretchAttribute = new THREE.InstancedBufferAttribute( new Float32Array( stretches ), 1);
+		      	var halfRootAngleSinAttribute = new THREE.InstancedBufferAttribute( new Float32Array( halfRootAngleSin ), 1);
+		      	var halfRootAngleCosAttribute = new THREE.InstancedBufferAttribute( new Float32Array( halfRootAngleCos ), 1);
+		      	var orientationAttribute = new THREE.InstancedBufferAttribute( new Float32Array( orientations ), 4);
+
+		      	instanced_geometry.setAttribute( 'offset', offsetAttribute);
+		      	instanced_geometry.setAttribute( 'orientation', orientationAttribute);
+		      	instanced_geometry.setAttribute( 'stretch', stretchAttribute);
+		      	instanced_geometry.setAttribute( 'halfRootAngleSin', halfRootAngleSinAttribute);
+		      	instanced_geometry.setAttribute( 'halfRootAngleCos', halfRootAngleCosAttribute);
+
+		      	//Get alpha map and blade texture
+		      	//These have been taken from "Realistic real-time grass rendering" by Eddie Lee, 2010
+		      	var loader = new THREE.TextureLoader();
+		      	loader.crossOrigin = '';
+		      	var texture =  loader.load( 'https://al-ro.github.io/images/grass/blade_diffuse.jpg' );
+		      	var alphaMap =  loader.load( 'https://al-ro.github.io/images/grass/blade_alpha.jpg' );
+
+      			//Define the material, specifying attributes, uniforms, shaders etc.
+      			grassBladeMat = new THREE.RawShaderMaterial( {
+        			uniforms: {
+          				map: { value: texture},
+          				alphaMap: { value: alphaMap},
+          				time: {type: 'float', value: 0}
+        			},
+        			vertexShader: vertexSource,
+        			fragmentShader: fragmentSource,
+        			side: THREE.DoubleSide
+      			} );
+
+      			var mesh = new THREE.Mesh( instanced_geometry, grassBladeMat );
+      			mesh.position.x = centreX;
+      			mesh.position.z = centreZ;
+      			scene.add(mesh);
+			}
+
+			function setShadowInAllChildren(array, cast, receive) {
+  				if(array.castShadow){
+  					array.castShadow = cast;
+  					array.receiveShadow = receive
+  				}
+
+    			for ( var i = 0; i < array.length; i++ ) 
+    			{
+      				array[i].castShadow = cast;
+      				array[i].receiveShadow = receive;
+      				if(array[i].children.length > 0)
+        				setShadowInAllChildren(array[i].children, cast, receive);
+    			}
+  			}
+
+  			function loadSky() {
+  				var hdrUrls = [ 'px.hdr', 'nx.hdr', 'py.hdr', 'ny.hdr', 'pz.hdr', 'nz.hdr' ];
+				hdrCubeMap = new THREE.HDRCubeTextureLoader()
+					.setPath( './tex/sky/' )
+					.setDataType( THREE.UnsignedByteType )
+					.load( hdrUrls, function () {
+
+						hdrCubeRenderTarget = pmremGenerator.fromCubemap( hdrCubeMap );
+
+						hdrCubeMap.magFilter = THREE.LinearFilter;
+						hdrCubeMap.needsUpdate = true;
+
+					} );
+				var pmremGenerator = new THREE.PMREMGenerator( renderer );
+				pmremGenerator.compileCubemapShader();
+
+				generatedCubeRenderTarget = pmremGenerator.fromScene( scene );
+  			}
+		</script>
+	</body>
+</html>
